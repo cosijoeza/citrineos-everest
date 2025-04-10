@@ -1,15 +1,13 @@
-version: '3.8'
-name: citrineos-core
+version: '3'
 services:
-  citrineos-rabbitmq:
-    container_name: citrineos-rabbitmq
+  amqp-broker:
     image: rabbitmq:3-management
     ports:
       - 15672:15672
       - 5672:5672
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_USER: 'guest'
+      RABBITMQ_DEFAULT_PASS: 'guest'
     volumes:
       - ./data/rabbitmq:/var/lib/rabbitmq
     healthcheck:
@@ -17,57 +15,26 @@ services:
       interval: 10s
       timeout: 10s
       retries: 3
-    networks:
-      citrineos-net:
-        aliases:
-          - amqp-broker
-
-  citrineos-postgis:
-    container_name: citrineos-postgis
+  ocpp-db:
     image: citrineos/postgis:v1.1.0
     ports:
-      - 5433:${POSTGRES_PORT}
+      - 5433:5432
     volumes:
       - ./data/postgresql/pgdata:/var/lib/postgresql/data
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      PGPORT: ${POSTGRES_PORT}
+      POSTGRES_DB: citrine
+      POSTGRES_USER: citrine
+      POSTGRES_PASSWORD: 'citrine'
     healthcheck:
-      test: 'pg_isready --username=${POSTGRES_USER} -p ${POSTGRES_PORT}'
+      test: 'pg_isready --username=citrine'
       interval: 5s
       timeout: 10s
       retries: 5
-    networks:
-      citrineos-net:
-        aliases:
-          - ocpp-db
 
-  citrineos-directus-core:
-    container_name: citrineos-directus-core
+  citrine:
     build:
       context: ../
       dockerfile: ./Server/deploy.Dockerfile
-    environment:
-      APP_NAME: 'all'
-      APP_ENV: 'docker'
-      CITRINEOS_UTIL_DIRECTUS_TOKEN: ${DIRECTUS_TOKEN}
-    ports:
-      - 8083:8080
-      - 8084:8081
-      - 8086:8082
-      - 8085:8085
-      - 8443:8443
-      - 8444:8444
-      - 9229:9229
-    depends_on:
-      citrineos-postgis:
-        condition: service_healthy
-      citrineos-rabbitmq:
-        condition: service_healthy
-      citrineos-directus-webui:
-        condition: service_healthy
     volumes:
       - ../package-lock.json:/usr/local/apps/citrineos/package-lock-host.json
       - ../package.json:/usr/local/apps/citrineos/package.json
@@ -111,44 +78,57 @@ services:
       - /usr/local/apps/citrineos/03_Modules/Reporting/dist/
       - /usr/local/apps/citrineos/03_Modules/SmartCharging/dist/
       - /usr/local/apps/citrineos/03_Modules/Transactions/dist/
-    networks:
-      - citrineos-net
+    environment:
+      APP_NAME: 'all'
+      APP_ENV: 'docker'
+      CITRINEOS_UTIL_DIRECTUS_TOKEN: '-ssaT85n4S-wVD21LKOCDwvXN5PtnJc0'
+    depends_on:
+      ocpp-db:
+        condition: service_healthy
+      amqp-broker:
+        condition: service_healthy
+      directus:
+        condition: service_healthy
+    ports:
+      - 8083:8080
+      - 8084:8081
+      - 8086:8082
+      - 8085:8085
+      - 8443:8443
+      - 8444:8444
+      - 9229:9229
 
-  citrineos-directus-webui:
-    container_name: citrineos-directus-webui
-    image: ghcr.io/citrineos/citrineos-directus:latest
+  directus:
+    build:
+      context: ../DirectusExtensions
+      dockerfile: ./directus.Dockerfile
     ports:
       - 8055:8055
-    environment:
-      KEY: ${DIRECTUS_KEY}
-      SECRET: ${DIRECTUS_SECRET}
-      ADMIN_EMAIL: ${DIRECTUS_ADMIN_EMAIL}
-      ADMIN_PASSWORD: ${DIRECTUS_ADMIN_PASSWORD}
-      DB_CLIENT: 'pg'
-      DB_HOST: citrineos-postgis
-      DB_PORT: ${POSTGRES_PORT}
-      DB_DATABASE: ${POSTGRES_DB}
-      DB_USER: ${POSTGRES_USER}
-      DB_PASSWORD: ${POSTGRES_PASSWORD}
-      EXTENSIONS_AUTO_RELOAD: 'true'
-      EXTENSIONS_CACHE_TTL: '1s'
-      WEBSOCKETS_ENABLED: 'true'
     volumes:
       - ./data/directus/uploads:/directus/uploads
+      - ./directus-env-config.cjs:/directus/config.cjs
     depends_on:
-      citrineos-postgis:
+      ocpp-db:
         condition: service_healthy
+    environment:
+      APP_NAME: 'all'
+      KEY: '1234567890'
+      SECRET: '0987654321'
+      ADMIN_EMAIL: 'admin@citrineos.com'
+      ADMIN_PASSWORD: 'CitrineOS!'
+      CONFIG_PATH: '/directus/config.cjs'
+      EXTENSIONS_AUTO_RELOAD: 'true'
+      EXTENSIONS_CACHE_TTL: '1s'
+      DB_CLIENT: 'pg'
+      DB_HOST: ocpp-db
+      DB_PORT: 5432
+      DB_DATABASE: 'citrine'
+      DB_USER: 'citrine'
+      DB_PASSWORD: 'citrine'
+      WEBSOCKETS_ENABLED: 'true'
     healthcheck:
       test: wget --no-verbose --tries=1 --spider http://127.0.0.1:8055/server/health || exit 1
       start_period: 15s
       interval: 15s
       timeout: 15s
       retries: 10
-    networks:
-      - citrineos-net
-
-# Networks
-networks:
-  citrineos-net:
-    name: citrineos-net
-    driver: bridge
