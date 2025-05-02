@@ -11,22 +11,122 @@ The goal is to establish communication via the Ocpp2.0.1 protocol between a Char
 ![h](img/citrineos-everest.png)
 
 ## Prerequisites
-- Have installed [citrineos-core](https://github.com/citrineos/citrineos-core)
+- Have installed and build [citrineos-core](https://github.com/citrineos/citrineos-core)
 - Have installed and running everest-nucleus
+
+## Setup Citrineos
+Go to `Server` folder and export .env file:
+```bash
+source .env
+```
+Example you are exporting
+
+```bash
+# RabbitMQ
+export RABBITMQ_USER=<RABBITMQ_USER>
+export RABBITMQ_PASSWORD=<RABBITMQ_PASSWORD>
+export RABBITMQ_HOST=<RABBITMQ_HOST>
+export RABBITMQ_PORT=<RABBITMQ_PORT>
+
+# PostgreSQL
+export POSTGRES_DB=<POSTGRES_DB>
+export POSTGRES_USER=<POSTGRES_USER>
+export POSTGRES_PASSWORD=<POSTGRES_PASSWORD>
+export POSTGRES_PORT=<POSTGRES_PORT>
+
+# Directus webui
+export DIRECTUS_KEY=<DIRECTUS_KEY>
+export DIRECTUS_SECRET=<DIRECTUS_SECRET>
+export DIRECTUS_ADMIN_EMAIL=<DIRECTUS_ADMIN_EMAIL>
+export DIRECTUS_ADMIN_PASSWORD=<DIRECTUS_ADMIN_PASSWORD>
+export DIRECTUS_TOKEN=<DIRECTUS_TOKEN>
+```
+
+Run the script to build the postgis image (database):
+
+**Note:** Once the image is built, there's no need to run the script again.
+```
+./build-postgis.sh
+```
+This file internally runs the following command to create a new image. It checks that it does not use information that is already in the cache and instead uses old information.
+
+```bash
+docker build --rm --no-cache --progress=plain \
+-t ${REGISTRY_NAME}/${APP_NAME}:${APP_TAG} \
+-f ./postgis/Dockerfile ./postgis || exit 1
+```
+<!-- To change the Postgres password, we had to create a custom image based on citrineos/postgis:v1.1.0. The only thing we added to the initialization files was a script that changes the password for the citrine user.
+Since the citrineos/postgis:v1.1.0 image is also custom,
+
+postgis folder tree
+```bash
+postgis
+├── config
+│   └── setup-user.sh
+└── Dockerfile
+```
+Dockerfile:
+```dockerfile
+# Use the original base image
+FROM citrineos/postgis:v1.1.0
+# Scripts for the DB initialization
+COPY config/setup-user.sh /docker-entrypoint-initdb.d/100-setup-user.sh
+```
+setup-user.sh:
+```bash
+#!/bin/bash
+set -ex
+
+# Wait until citrine user is ready
+until pg_isready -U citrine; do
+  sleep 1
+done
+
+# Change password
+psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+    ALTER USER ${POSTGRES_USER} WITH PASSWORD '${POSTGRES_PASSWORD}';
+EOSQL
+
+``` -->
+
+If you need to change password settings for Postgis and RabbitMQ services, you need to go to: [Server/src/config/envs/docker.ts](src/config/envs/docker.ts) and update. This file use `dotenv/config` library to upload environment variables.
+
+```typescript
+    data: {
+      sequelize: {
+        host: 'ocpp-db',
+        port: process.env.POSTGRES_PORT ? parseInt(process.env.POSTGRES_PORT, 10) : undefined,
+        database: process.env.POSTGRES_DB,
+        dialect: 'postgres',
+        username: process.env.POSTGRES_USER,
+        password: process.env.POSTGRES_PASSWORD,
+        storage: '',
+        sync: false,
+        alter: true,
+      }
+
+    messageBroker: {
+        amqp: {
+          url: `amqp://${process.env.RABBITMQ_USER}:${process.env.RABBITMQ_PASSWORD}@${process.env.RABBITMQ_HOST}:${process.env.RABBITMQ_PORT}`,
+          exchange: 'citrineos',
+        }
+      }
+```
 
 ## Usage
 To start go to `citrineos-core/Server` and execute:
 
-`docker compose -f ./docker-compose.yml up -d`
+`docker compose -f docker-compose.yml up -d`
 
 output:
 ```bash
 cosi@cosi-pc:~/Documentos/datyra/citrineos-core/Server$ docker compose -f ./docker-compose.yml up -d
-[+] Running 4/4
- ⠿ Container server-ocpp-db-1      Healthy                                                                                                                                                             1.0s
- ⠿ Container server-amqp-broker-1  Healthy                                                                                                                                                             1.0s
- ⠿ Container server-directus-1     Healthy                                                                                                                                                             1.0s
- ⠿ Container server-citrine-1      Started
+[+] Running 5/5
+ ⠿ Network citrineos-net               Created                                                                                                                        0.7s
+ ⠿ Container citrineos-postgis         Healthy                                                                                                                      167.5s
+ ⠿ Container citrineos-rabbitmq        Healthy                                                                                                                      170.5s
+ ⠿ Container citrineos-directus-webui  Healthy                                                                                                                      223.6s
+ ⠿ Container citrineos-directus-core   Started
 ```
 
 Now you could have access to:
